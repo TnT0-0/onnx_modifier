@@ -29,7 +29,7 @@ class ModelModifier:
                 initial_temp_list.append(ini)
         self.initializer_list = initial_temp_list
 
-    def add_node(self, nodes):
+    def add_node(self, nodes, new_output=None):
         # node_inputs_map: dict
         # key: input name
         # value: nodes list
@@ -37,27 +37,54 @@ class ModelModifier:
         for node in self.node_list:
             for input in node.input:
                 node_inputs_map[input].append(node)
-
         if not isinstance(nodes, list):
             nodes = [nodes]
 
+        model_input_name = [input.name for input in self.model_input]
         model_output_name = [output.name for output in self.model_output]
+
+        input_output_nodes = []
         for node in nodes:
             for input in node.input:
                 if len(node_inputs_map[input]) == 0 and input not in model_output_name:
                     continue
-                ## TODO: Add nodes at the end and beginning of the model
-                # if len(node_inputs_map[input]) == 0 and input in model_output_name:
-                #     for out in self.model_output:
-                #         if out.name == input:
-                #             self.model_output_to_remove.append(out)
-                #     insert_pos = 0
-                #     for i in range(len(self.node_list)):
-                #         if input in self.node_list[i].output:
-                #             insert_pos = i + 1
-                #             break
-                #     self.node_list.insert(insert_pos, node)
-                #     continue
+                # add new node to model input
+                if input in model_input_name:
+                    if node not in input_output_nodes:
+                        input_output_nodes.append(node)
+                    # insert node
+                    self.node_list.insert(0, node)
+                    # append new node in node_inputs_map
+                    node_inputs_map[input].append(node)
+                    # modify next node input
+                    for next_node in node_inputs_map[input]:
+                        input_idx = list(next_node.input).index(input)
+                        next_node.input[input_idx] = node.output[0]
+                        # update next_node message in node_inputs_map
+                        node_inputs_map[input].remove(next_node)
+                        node_inputs_map[node.output[0]].append(next_node)
+                    continue
+                # add new node to model output
+                assert input in model_output_name and new_output is not None, "If you want to modify model output, please specify new_output!"
+                if node not in input_output_nodes:
+                    input_output_nodes.append(node)
+                # append new node
+                self.node_list.append(node)
+                # update node_inputs_map
+                node_inputs_map[input].append(node)
+                org_output = next(o for o in self.model_output if o.name == input)
+                self.model_output.remove(org_output)
+                self.model_output.append(new_output)
+
+        new_nodes = []
+        for node in nodes:
+            if node not in input_output_nodes:
+                new_nodes.append(node)
+
+        for node in new_nodes:
+            for input in node.input:
+                if len(node_inputs_map[input]) == 0:
+                    continue
                 node_pos = []
                 node_to_be_remove = defaultdict(list)
                 for next_node in node_inputs_map[input]:
